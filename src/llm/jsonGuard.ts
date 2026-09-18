@@ -172,3 +172,36 @@ export function parseModelJson(raw: string): ParseJsonResult {
 export function isRetryableContent(raw: string): boolean {
   return raw.trim().length === 0;
 }
+
+/**
+ * 归一化模型输出：递归删除值为 null 的字段与数组元素。
+ *
+ * 为什么需要 —— JSON Output 模式下，模型习惯把「不知道」写成 null，
+ * 而 Zod 的 `.optional()` 只接受 undefined。实测后果很重：
+ *
+ *   2_found_quotes[0].location.page: Invalid input: expected number, received null
+ *
+ * 一份完全可用的观察层会因此被判非法，触发 3 次无用重试（每次约 14 秒），
+ * 一次请求白烧 43 秒，最后整项转人工。这不是模型答错了，是表示法差异。
+ *
+ * 为什么不直接把 schema 放宽 —— 契约的严格性拦的是**真错误**（缺必填字段、
+ * 枚举越界、类型不对），那部分价值不能丢。而 null 只是同一个意思的另一种写法。
+ * 在边界处做表示法归一化，比放松契约更合适，也就是「宽容输入，严格输出」。
+ *
+ * 对 `.nullable().default(null)` 的字段（如 `rule_applied`）无害：
+ * null 被删掉后由 default 补回，语义不变。
+ */
+export function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item !== null).map(stripNulls);
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (item === null) continue;
+      out[key] = stripNulls(item);
+    }
+    return out;
+  }
+  return value;
+}

@@ -267,6 +267,104 @@ describe('原样采纳', () => {
     const evidence = makeEvidence({ '2_found_quotes': [quote('q1')] });
     const { match } = reconcile(evidence, makeModel());
 
-    expect(match.prompt_version).toBe('b3-v1');
+    // 只校验格式而不锁死具体版本 —— 否则每次改 prompt 都要动测试，
+    // 久而久之就会有人图省事把断言删掉。
+    expect(match.prompt_version).toMatch(/^b3-v\d+$/);
+  });
+});
+
+// ── ⑥ human_reasons 过滤 ───────────────────────────────────
+
+describe('human_reasons 过滤', () => {
+  it('闭集内的理由被保留', () => {
+    // 注意不能用 parse_failure 测这条 —— 它已归程序裁定（见下一条用例），
+    // 模型自报会被过滤。这里用一条纯模型侧的理由。
+    const evidence = makeEvidence({ '2_found_quotes': [quote('q1')] });
+    const { match } = reconcile(
+      evidence,
+      makeModel({ needs_human: true, human_reasons: ['required_evidence_missing'] }),
+    );
+
+    expect(match.human_reasons).toContain('required_evidence_missing');
+  });
+
+  it('❗闭集外的理由被过滤，而不是拒收整份判定', () => {
+    // 线上实测：模型给出 required_evidence_not_met，导致 3 次重试全部失败、
+    // 该项整项转人工；而同一批里 needs_human=false 的评分点却正常通过
+    // （空数组不校验元素）。这种「部分成功部分失败」最难排查。
+    const evidence = makeEvidence({ '2_found_quotes': [quote('q1')] });
+    const { match, adjustments } = reconcile(
+      evidence,
+      makeModel({
+        matched_level: 'L3',
+        needs_human: true,
+        human_reasons: ['required_evidence_not_met'],
+      }),
+    );
+
+    // 判定本身必须保住 —— 理由标签只是元数据，不该有否决权
+    expect(match.matched_level).toBe('L3');
+    expect(match.needs_human).toBe(true);
+    // 无法识别的标签被丢弃并留痕
+    expect(match.human_reasons).not.toContain('required_evidence_not_met');
+    expect(adjustments.some((a) => a.includes('required_evidence_not_met'))).toBe(true);
+  });
+
+  it('模型给了垃圾理由时，程序侧的理由仍然保留', () => {
+    const conflicted = makeEvidence({
+      '2_found_quotes': [quote('q1')],
+      '5_surface_conflicts': [
+        {
+          conflict_id: 'x1',
+          nature: 'factual_mismatch',
+          claim: '父进程回收全部子进程',
+          claim_location: { anchor: '§3' },
+          observed: '代码中无 wait 调用',
+          observed_location: { anchor: 'list.1' },
+        },
+      ],
+    });
+
+    const { match } = reconcile(
+      conflicted,
+      makeModel({ needs_human: true, human_reasons: ['我自己编的理由'] }),
+    );
+
+    expect(match.human_reasons).toContain('unresolved_conflict');
+    expect(match.human_reasons).not.toContain('我自己编的理由');
+  });
+
+  it('❗模型自报 parse_failure 但材料没问题时被过滤', () => {
+    // 模型能看到 7_parse_failures 字段，于是会推断"材料解析失败"。
+    // 但那个字段里混着「引文回查丢弃」（模型侧问题），材料本身是好的 ——
+    // 材料到底有没有问题，只有写这个字段的程序知道。
+    const evidence = makeEvidence({
+      '2_found_quotes': [quote('q1')],
+      '7_parse_failures': [
+        { stage: 'quote_verify', code: 'QUOTE_NOT_VERIFIABLE', recoverable: true },
+      ],
+    });
+
+    const { match, adjustments } = reconcile(
+      evidence,
+      makeModel({ needs_human: true, human_reasons: ['parse_failure'] }),
+    );
+
+    expect(match.human_reasons).not.toContain('parse_failure');
+    expect(adjustments.some((a) => a.includes('parse_failure'))).toBe(true);
+  });
+
+  it('材料真的解析失败时，parse_failure 被采纳', () => {
+    const evidence = makeEvidence({
+      '2_found_quotes': [quote('q1')],
+      '7_parse_failures': [{ stage: 'pdf', code: 'EMPTY_TEXT_LAYER', recoverable: true }],
+    });
+
+    const { match } = reconcile(
+      evidence,
+      makeModel({ needs_human: true, human_reasons: ['parse_failure'] }),
+    );
+
+    expect(match.human_reasons).toContain('parse_failure');
   });
 });

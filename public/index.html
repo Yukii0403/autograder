@@ -8,7 +8,7 @@
       name="description"
       content="把教师脑中的评分标准显性化，把可机械化的部分从人身上挪走。AI 只提供带证据的建议，最终判定由教师做出。"
     />
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <header class="topbar">
@@ -29,13 +29,16 @@
         </div>
 
         <div class="field">
-          <label for="rubric">评分细则</label>
+          <div class="field-head">
+            <label for="rubric">评分细则</label>
+            <button type="button" class="ghost" id="seed-rubric">载入示例细则</button>
+          </div>
           <select id="rubric" aria-describedby="rubric-hint">
             <option value="">加载中…</option>
           </select>
           <p id="rubric-hint" class="hint">
-            细则决定「检什么证据、分几档」。没有细则时先到
-            <code>POST /api/rubrics</code> 建一份，或用 <code>fixtures/sample-rubric.json</code>。
+            细则决定「检什么证据、分几档」。还没有细则时，点右上角「载入示例细则」——
+            它会在你的游客空间下创建一份可用的细则。
           </p>
         </div>
 
@@ -131,6 +134,6 @@
       <span>AutoGrader · 深大计软 &amp; 腾讯云 粤港澳大湾区 AI Coding 创新大赛参赛作品</span>
     </footer>
 
-    <script src="/app.js" defer></script>
+    <script src="./app.js" defer></script>
   </body>
 </html>

@@ -2,7 +2,7 @@
  * 评阅编排服务（主链路）。
  *
  *   评分细则 + 材料
- *        ↓  逐评分点
+ *        ↓  逐评分点（**并发**）
  *   证据抽取（观察层）      —— evidenceService
  *        ↓
  *   等级匹配               —— levelMatchService
@@ -11,7 +11,7 @@
  *        ↓
  *   教师确认与校准          —— M5
  *
- * ── 两条编排层面的硬规则 ──────────────────────────────────
+ * ── 三条编排层面的硬规则 ──────────────────────────────────
  *
  *   1. **单个评分点失败不中断整批。**
  *      某评分点抽取失败（模型超时、结构不合法、材料缺失）时，只把**该项**
@@ -21,6 +21,17 @@
  *   2. **judgment 类型不进入自动流程，但必须被显式记录。**
  *      它们不是「被忽略了」，而是「被判定不该自动评」。dispositions 里
  *      会明确写出原因，否则教师会以为系统漏评了。
+ *
+ *   3. **评分点之间并发，不串行。**
+ *      实测：单评分点端到端约 100 秒（抽取 + 匹配各一次模型调用），
+ *      4 个评分点串行需 6 分钟以上，客户端在 174 秒处就断连了。
+ *      必须澄清的是 —— **HTTP 触发的 Worker 没有 wall time 上限**（官方明确
+ *      "No limit"，免费版同样），断开的是客户端一侧的网络层。
+ *      并发后总时长约等于最慢的那一个评分点。
+ *
+ *      并发上限：Workers 对单个请求的出站连接上限是 6。每个阶段最多
+ *      同时发出 targets.length 个请求（当前示例是 4 个），留有余量。
+ *      注意等待网络不计入 CPU 时间，所以并发不会增加 CPU 开销。
  *
  * 本期不落库：inline 场景里没有 submission 记录，而 grade 表对 submission
  * 有外键。落库留给 M5（复核页需要按 submission 读取）。这是有意的取舍，
@@ -107,6 +118,15 @@ export interface ScoreExplain {
   adjustments: string[];
 }
 
+/** 单个评分点的完整产出。用返回值而不是回调汇总，避免并发写共享数组。 */
+interface CriterionOutcome {
+  disposition: Disposition;
+  evidence: EvidenceExtraction | null;
+  match: LevelMatch | null;
+  /** 被引文回查丢弃的摘录数。用 extractEvidence 的原始计数，不从 parse_failures 反推 */
+  quotesDropped: number;
+}
+
 export async function gradeSubmission(args: GradeArgs): Promise<GradeResult> {
   const { config, logger, rubric, materialId, materialText } = args;
   const now = args.now ?? new Date().toISOString();
@@ -117,34 +137,51 @@ export async function gradeSubmission(args: GradeArgs): Promise<GradeResult> {
     return true;
   });
 
+  // 并发，但 Promise.all 保持数组顺序 —— 结果顺序仍与 rubric.criteria 一致
+  const outcomes = await Promise.all(
+    targets.map(async (criterion) => {
+      try {
+        return await evaluateCriterion({ config, logger, criterion, materialId, materialText, now });
+      } catch (err) {
+        // 兜底：evaluateCriterion 内部已分别处理了抽取与匹配的失败，
+        // 这里防的是意料之外的异常（例如将来新增步骤忘了 try）。
+        // 「单项失败不中断整批」是硬规则，多一道保险不亏。
+        const msg = errorBrief(err);
+        logger.error('grade.criterion_crashed', { criterionId: criterion.criterion_id, ...msg });
+        return {
+          disposition: {
+            criterionId: criterion.criterion_id,
+            criterionName: criterion.name,
+            status: 'pending' as const,
+            level: null,
+            reasons: ['no_evidence'],
+            adjustments: [],
+            detail: `处理该评分点时发生未预期错误：${msg.message}`,
+          },
+          evidence: null,
+          match: null,
+          quotesDropped: 0,
+        };
+      }
+    }),
+  );
+
   const evidence: EvidenceExtraction[] = [];
   const matches: LevelMatch[] = [];
   const dispositions: Disposition[] = [];
   const adjustmentsByCriterion = new Map<string, string[]>();
-
   let quoteKept = 0;
   let quoteDropped = 0;
 
-  for (const criterion of targets) {
-    const disposition = await evaluateCriterion({
-      config,
-      logger,
-      criterion,
-      materialId,
-      materialText,
-      now,
-      onEvidence: (e) => {
-        evidence.push(e);
-        quoteKept += e['2_found_quotes'].length;
-      },
-      onQuoteDropped: (n) => {
-        quoteDropped += n;
-      },
-      onMatch: (m) => matches.push(m),
-    });
-
-    dispositions.push(disposition);
-    adjustmentsByCriterion.set(criterion.criterion_id, disposition.adjustments);
+  for (const outcome of outcomes) {
+    dispositions.push(outcome.disposition);
+    adjustmentsByCriterion.set(outcome.disposition.criterionId, outcome.disposition.adjustments);
+    if (outcome.evidence) {
+      evidence.push(outcome.evidence);
+      quoteKept += outcome.evidence['2_found_quotes'].length;
+    }
+    quoteDropped += outcome.quotesDropped;
+    if (outcome.match) matches.push(outcome.match);
   }
 
   const gradeId = `gr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -196,13 +233,11 @@ interface EvaluateCriterionArgs {
   materialId: string;
   materialText: string;
   now: string;
-  onEvidence: (e: EvidenceExtraction) => void;
-  onQuoteDropped: (n: number) => void;
-  onMatch: (m: LevelMatch) => void;
 }
 
-async function evaluateCriterion(args: EvaluateCriterionArgs): Promise<Disposition> {
+async function evaluateCriterion(args: EvaluateCriterionArgs): Promise<CriterionOutcome> {
   const { config, logger, criterion, materialId, materialText, now } = args;
+  const startedAt = Date.now();
 
   const base: Disposition = {
     criterionId: criterion.criterion_id,
@@ -216,14 +251,20 @@ async function evaluateCriterion(args: EvaluateCriterionArgs): Promise<Dispositi
   // ── ① judgment 类型：没有可判定的依据，明确记录为「不该自动评」 ──
   if (criterion.type === 'judgment') {
     return {
-      ...base,
-      reasons: ['criterion_is_judgment'],
-      detail: '该评分点属于定性判断，系统不提供自动判定，请人工评阅',
+      disposition: {
+        ...base,
+        reasons: ['criterion_is_judgment'],
+        detail: '该评分点属于定性判断，系统不提供自动判定，请人工评阅',
+      },
+      evidence: null,
+      match: null,
+      quotesDropped: 0,
     };
   }
 
   // ── ② 证据抽取 ──────────────────────────────────────────
   let evidence: EvidenceExtraction;
+  let quotesDropped = 0;
   try {
     const extracted = await extractEvidence({
       config,
@@ -235,45 +276,70 @@ async function evaluateCriterion(args: EvaluateCriterionArgs): Promise<Dispositi
       now,
     });
     evidence = extracted.evidence;
-    args.onEvidence(evidence);
-    args.onQuoteDropped(extracted.quotes.dropped);
+    quotesDropped = extracted.quotes.dropped;
   } catch (err) {
     // 单项失败不中断整批 —— 见文件头「硬规则 1」
-    logger.warn('grade.evidence_failed', {
-      criterionId: criterion.criterion_id,
-      errName: (err as Error)?.name,
-    });
+    const msg = errorBrief(err);
+    logger.warn('grade.evidence_failed', { criterionId: criterion.criterion_id, ...msg });
     return {
-      ...base,
-      reasons: ['no_evidence'],
-      detail: `证据抽取失败（${(err as Error)?.name ?? 'UnknownError'}），该项转人工；其余评分点不受影响`,
+      disposition: {
+        ...base,
+        reasons: ['no_evidence'],
+        detail: `证据抽取失败：${msg.message}`,
+      },
+      evidence: null,
+      match: null,
+      quotesDropped: 0,
     };
   }
 
   // ── ③ 等级匹配 ──────────────────────────────────────────
   try {
     const matched = await matchLevel({ config, logger, criterion, evidence });
-    args.onMatch(matched.match);
-    return {
-      ...base,
-      status: matched.match.needs_human ? 'pending' : 'auto',
-      level: matched.match.matched_level,
-      reasons: matched.match.human_reasons,
-      adjustments: matched.adjustments,
-    };
-  } catch (err) {
-    // 匹配失败时，证据仍然有效，只是这一项定不了档 → 转人工
-    logger.warn('grade.match_failed', {
+    logger.info('grade.criterion_done', {
       criterionId: criterion.criterion_id,
-      errName: (err as Error)?.name,
+      ms: Date.now() - startedAt,
+      level: matched.match.matched_level,
+      needsHuman: matched.match.needs_human,
     });
     return {
-      ...base,
-      reasons: ['no_evidence'],
-      detail: `等级判定失败（${(err as Error)?.name ?? 'UnknownError'}），证据已保留，该项转人工`,
-      adjustments: buildRuleAdjustments(criterion, evidence),
+      disposition: {
+        ...base,
+        status: matched.match.needs_human ? 'pending' : 'auto',
+        level: matched.match.matched_level,
+        reasons: matched.match.human_reasons,
+        adjustments: matched.adjustments,
+      },
+      evidence,
+      match: matched.match,
+      quotesDropped,
+    };
+  } catch (err) {
+    // 匹配失败时证据仍然有效，只是这一项定不了档 → 转人工。
+    // detail 里带上具体原因：这一层最需要诊断信息，笼统写「失败」等于没写。
+    const msg = errorBrief(err);
+    logger.warn('grade.match_failed', { criterionId: criterion.criterion_id, ...msg });
+    return {
+      disposition: {
+        ...base,
+        reasons: ['no_evidence'],
+        detail: `等级判定失败：${msg.message}（证据已保留，该项转人工）`,
+        adjustments: buildRuleAdjustments(criterion, evidence),
+      },
+      evidence,
+      match: null,
+      quotesDropped,
     };
   }
+}
+
+/** 把异常压成可读的一行 —— 名字 + 消息，避免把整个 stack 塞进响应。 */
+function errorBrief(err: unknown): { name: string; message: string } {
+  const e = err as { name?: string; message?: string };
+  return {
+    name: e?.name ?? 'UnknownError',
+    message: e?.message ?? String(err),
+  };
 }
 
 /** 匹配阶段失败时，仍把程序规则的干预结论留给教师。 */

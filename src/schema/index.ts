@@ -179,7 +179,7 @@ export const EvidenceExtractionSchema = EvidenceModelOutputSchema.extend({
   submission_id: z.string().min(1),
   criterion_id: z.string().min(1),
   extractor_version: z.string().default('ev-v1.0'),
-  prompt_version: z.string().default('b2-v1'),
+  prompt_version: z.string().default('b2-v3'),
   model: z.string().min(1),
   '6_sufficiency': SufficiencySchema,
   '7_parse_failures': z.array(ParseFailureSchema).default([]),
@@ -228,8 +228,22 @@ export const LevelMatchSchema = z.object({
     .default([]),
   /** true 时该评分点不进入总分 */
   needs_human: z.boolean().default(false),
-  human_reasons: z.array(HumanReasonSchema).default([]),
-  prompt_version: z.string().default('b3-v1'),
+  /**
+   * 转人工的理由标签。
+   *
+   * 刻意用 `z.array(z.string())` 而不是枚举 —— **枚举越界不该成为拒收整份判定的理由**。
+   * 理由标签是解释性元数据，`needs_human` 才是判定本身。为了一个标签丢掉一个
+   * 可用档位，是代价不对称的错误。
+   *
+   * 实测后果：模型给出闭集之外的标签（如 required_evidence_not_met / evidence_missing）
+   * 会让 3 次重试全部失败、该项整项转人工；而同一批里 needs_human=false 的评分点
+   * 却正常通过 —— 因为空数组不校验元素。这种「部分成功部分失败」最难排查。
+   *
+   * 合法性由程序在 reconcileLevelMatch 里过滤保证，与 evidence_refs / missing_refs
+   * 是同一思路：让模型可以自由表达，但只有程序认可的取值才生效。
+   */
+  human_reasons: z.array(z.string()).default([]),
+  prompt_version: z.string().default('b3-v2'),
 });
 
 /**

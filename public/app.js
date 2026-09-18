@@ -112,11 +112,91 @@
     '',
   ].join('\n');
 
+  // ── 示例细则 ────────────────────────────────────────────
+  // 内嵌一份可直接创建的细则，让第一次打开页面的人不必先去调 API。
+  // 与 fixtures/sample-rubric.json 同构，但精简到与上面那份示例报告对应的四个评分点。
+  // 注意：rubric_id 与 version 由服务端分配，这里不传。
+  var SAMPLE_RUBRIC = {
+    title: '操作系统实验三 · 进程与信号',
+    course: '操作系统',
+    total_points: 100,
+    criteria: [
+      {
+        criterion_id: 'c1',
+        name: '实验原理说明',
+        weight: 15,
+        type: 'execution',
+        evidence_requirements: [
+          { req_id: 'r1', kind: 'section', target: '原理', min_chars: 200, required: true },
+          { req_id: 'r2', kind: 'code_symbol', target: 'fork', required: true },
+        ],
+        levels: [
+          { level: 'L4', score_ratio: 1, descriptor: '覆盖进程创建、信号、同步三个要点，且与实际代码对应' },
+          { level: 'L3', score_ratio: 0.8, descriptor: '覆盖主要要点，个别次要要点未展开' },
+          { level: 'L2', score_ratio: 0.5, descriptor: '仅复述教材定义，未与本次实现建立对应' },
+          { level: 'L1', score_ratio: 0.2, descriptor: '几乎未涉及原理' },
+        ],
+        cap_level_when_required_missing: 'L2',
+      },
+      {
+        criterion_id: 'c2',
+        name: '代码实现与功能正确性',
+        weight: 35,
+        type: 'execution',
+        evidence_requirements: [
+          { req_id: 'r3', kind: 'code_symbol', target: 'fork|wait|waitpid', required: true },
+          { req_id: 'r4', kind: 'code_symbol', target: 'signal|sigaction|kill', required: true },
+        ],
+        levels: [
+          { level: 'L4', score_ratio: 1, descriptor: '全部功能实现正确，异常路径有处理' },
+          { level: 'L3', score_ratio: 0.8, descriptor: '主流程正确，个别边界情况未覆盖' },
+          { level: 'L2', score_ratio: 0.5, descriptor: '核心功能可用，存在明确缺陷' },
+          { level: 'L1', score_ratio: 0.2, descriptor: '无法完成基本功能' },
+        ],
+        cap_level_when_required_missing: 'L2',
+      },
+      {
+        criterion_id: 'c3',
+        name: '实验结果与数据',
+        weight: 30,
+        type: 'execution',
+        evidence_requirements: [
+          { req_id: 'r5', kind: 'figure', target: '图', required: true },
+          { req_id: 'r6', kind: 'section', target: '结果', min_chars: 150, required: true },
+        ],
+        levels: [
+          { level: 'L4', score_ratio: 1, descriptor: '给出完整运行输出，与代码行为一致，含对照' },
+          { level: 'L3', score_ratio: 0.8, descriptor: '结果完整，缺少对照或分析较浅' },
+          { level: 'L2', score_ratio: 0.5, descriptor: '结果不完整，或与代码行为对不上' },
+          { level: 'L1', score_ratio: 0.2, descriptor: '未给出可核验的运行结果' },
+        ],
+        cap_level_when_required_missing: 'L2',
+      },
+      {
+        criterion_id: 'c4',
+        name: '问题分析与改进',
+        weight: 20,
+        type: 'execution',
+        evidence_requirements: [
+          { req_id: 'r7', kind: 'section', target: '问题', min_chars: 100, required: false },
+        ],
+        levels: [
+          { level: 'L4', score_ratio: 1, descriptor: '指出具体问题并给出可验证的改进方案' },
+          { level: 'L3', score_ratio: 0.8, descriptor: '指出问题，改进方案较为笼统' },
+          { level: 'L2', score_ratio: 0.5, descriptor: '仅泛泛而谈，未结合实际实现' },
+          { level: 'L1', score_ratio: 0.2, descriptor: '未涉及' },
+        ],
+        cap_level_when_required_missing: 'L2',
+      },
+    ],
+  };
+
   // ── DOM ─────────────────────────────────────────────────
   var elRubric = document.getElementById('rubric');
   var elReport = document.getElementById('report');
   var elRun = document.getElementById('run');
   var elSample = document.getElementById('load-sample');
+  var elSeed = document.getElementById('seed-rubric');
   var elStatus = document.getElementById('status');
   var elResult = document.getElementById('result');
   var elMeta = document.getElementById('result-meta');
@@ -205,11 +285,14 @@
 
         if (items.length === 0) {
           elRubric.appendChild(
-            el('option', null, '（没有评分细则，请先创建一份）')
+            el('option', null, '（还没有细则 —— 点上方「载入示例细则」）')
           );
           elRubric.disabled = true;
           return;
         }
+
+        // 创建示例细则后重新加载时，必须把禁用状态撤回来
+        elRubric.disabled = false;
 
         items.forEach(function (item, index) {
           var label =
@@ -232,6 +315,39 @@
         elRubric.appendChild(el('option', null, '（加载失败）'));
         elRubric.disabled = true;
         setStatus('读取评分细则失败：' + err.message, 'error');
+      });
+  }
+
+  // ── 创建示例细则 ────────────────────────────────────────
+
+  /**
+   * 在**当前游客空间**下创建一份示例细则。
+   *
+   * 为什么需要它：数据是按 visitorId 隔离的，用 curl 建的细则在浏览器里看不到
+   * （两个 visitorId 不同）。演示时评委点开链接是全新的游客空间，
+   * 没有这个按钮就必须先手动调 API —— 那就不叫「可在线体验」了。
+   *
+   * 每次点击都会新建一份（version 自增，不冲突）。重复点只是多几条列表项，
+   * 不会破坏已有数据，因此不做幂等处理 —— 幂等在这里反而要求先查询再判断，
+   * 徒增复杂度。
+   */
+  function seedRubric() {
+    elSeed.disabled = true;
+    setStatus('正在创建示例细则…');
+
+    api('/api/rubrics', { method: 'POST', body: SAMPLE_RUBRIC })
+      .then(function (data) {
+        var created = data && data.rubric;
+        return loadRubrics().then(function () {
+          if (created && created.rubric_id) elRubric.value = created.rubric_id;
+          setStatus('已创建示例细则（v' + (created ? created.version : '?') + '）', 'ok');
+        });
+      })
+      .catch(function (err) {
+        setStatus('创建失败：' + err.message, 'error');
+      })
+      .then(function () {
+        elSeed.disabled = false;
       });
   }
 
@@ -378,6 +494,7 @@
   // ── 绑定 ────────────────────────────────────────────────
 
   elRun.addEventListener('click', runGrade);
+  elSeed.addEventListener('click', seedRubric);
   elSample.addEventListener('click', function () {
     elReport.value = SAMPLE_REPORT;
     setStatus('已载入示例报告（内含「正文声称与代码不一致」与「缺少信号处理」两处缺陷）');

@@ -68,6 +68,25 @@ export interface HumanityRuleResult {
 }
 
 /**
+ * 是否存在**材料级**的解析失败。
+ *
+ * 必须排除 `stage === 'quote_verify'` 的记录：那一条表示
+ * **引文回查丢弃了模型编造的摘录**，是模型侧的质量问题，不是材料的问题 ——
+ * 材料本身读得好好的。
+ *
+ * 两者混在 `7_parse_failures` 同一个字段里，会造成两个错误归因：
+ *   1. 程序侧：模型编一条引文，整项就被判「材料解析失败」并转人工，
+ *      于是「护城河正常工作」反而表现为「系统故障」。
+ *   2. 模型侧：它能看到这个字段，于是自己推断出 parse_failure 理由 ——
+ *      而材料到底有没有问题，只有写这个字段的程序知道。
+ *
+ * 所以判据由本函数统一提供，程序与等级匹配两侧都用它。
+ */
+export function hasMaterialLevelFailure(evidence: EvidenceExtraction): boolean {
+  return evidence['7_parse_failures'].some((f) => f.stage !== 'quote_verify');
+}
+
+/**
  * 在调用模型之前先跑这套规则。
  *
  * 目的是把「不需要模型判断」的两种情况提前拦掉：
@@ -95,8 +114,10 @@ export function applyHumanityRules(
     return { needsHuman: true, reasons: ['no_evidence'], cappedAt: null, missingRequired };
   }
 
-  // 3) 解析失败 → 证据不完整，不足以判定
-  if (evidence['7_parse_failures'].length > 0) {
+  // 3) 材料级解析失败 → 证据不完整，不足以判定
+  //    判据见 hasMaterialLevelFailure —— 必须排除「引文回查丢弃」，
+  //    那是模型的错，不是材料的错。
+  if (hasMaterialLevelFailure(evidence)) {
     reasons.push('parse_failure');
     needsHuman = true;
   }

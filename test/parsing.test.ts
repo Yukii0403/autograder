@@ -12,6 +12,7 @@ import {
   stripTrailingCommas,
   balanceBrackets,
   isRetryableContent,
+  stripNulls,
 } from '../src/llm/jsonGuard';
 import { buildSectionIndex, renderSectionIndex, selectRelevantSections } from '../src/util/sectionIndex';
 import { LlmError } from '../src/errors';
@@ -194,5 +195,59 @@ describe('章节索引', () => {
     const big = `${DOC}\n\n## 9 附录\n\n${filler}`;
     const out = selectRelevantSections(big, buildSectionIndex(big), ['实现'], 260);
     expect(out).toContain('<!-- 切片：');
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// 模型输出归一化
+// ────────────────────────────────────────────────────────────
+
+describe('stripNulls（模型输出归一化）', () => {
+  it('删除对象里值为 null 的字段', () => {
+    expect(stripNulls({ page: null, anchor: '§2.1' })).toEqual({ anchor: '§2.1' });
+  });
+
+  it('递归处理嵌套对象', () => {
+    expect(stripNulls({ location: { page: null, anchor: 'a' } })).toEqual({
+      location: { anchor: 'a' },
+    });
+  });
+
+  it('删除数组里的 null 元素', () => {
+    expect(stripNulls({ refs: ['q1', null, 'q2'] })).toEqual({ refs: ['q1', 'q2'] });
+  });
+
+  it('保留 false、0 与空字符串 —— 它们不是「未提供」', () => {
+    expect(stripNulls({ a: false, b: 0, c: '', d: null })).toEqual({ a: false, b: 0, c: '' });
+  });
+
+  it('不改动非对象输入', () => {
+    expect(stripNulls('x')).toBe('x');
+    expect(stripNulls(null)).toBe(null);
+    expect(stripNulls(7)).toBe(7);
+  });
+
+  it('❗真实故障回归：location.page 为 null 的输出不再被判非法', () => {
+    // 线上实测的失败样本形态。修复前它会让一份可用的观察层被拒收，
+    // 并触发 3 次无用重试（每次约 14 秒，合计白烧 43 秒）。
+    const modelOutput = {
+      '2_found_quotes': [
+        {
+          quote_id: 'q1',
+          material_id: 'm1',
+          text: '父进程会回收全部子进程',
+          location: { page: null, anchor: '§3 第2段' },
+        },
+      ],
+      '3_locations_index': [{ material_id: 'm1', page: null, anchor: '§3' }],
+    };
+
+    const cleaned = stripNulls(modelOutput) as Record<string, unknown>;
+    const quotes = cleaned['2_found_quotes'] as Array<{ location: Record<string, unknown> }>;
+    const index = cleaned['3_locations_index'] as Array<Record<string, unknown>>;
+
+    expect(quotes[0]?.location).toEqual({ anchor: '§3 第2段' });
+    expect(quotes[0]?.location).not.toHaveProperty('page');
+    expect(index[0]).not.toHaveProperty('page');
   });
 });

@@ -373,6 +373,27 @@ describe('前置人工规则', () => {
     expect(r.reasons).toContain('parse_failure');
   });
 
+  it('❗引文回查丢弃不算材料解析失败 —— 那是模型的错，不是材料的错', () => {
+    // 线上实测：两类记录混在同一个字段里时，模型只要编造一条引文，
+    // 整项就被判成「材料解析失败」并转人工 —— 于是「护城河正常工作」
+    // 反而表现为「系统故障」，是典型的错误归因。
+    const r = applyHumanityRules(
+      makeRubric().criteria[0]!,
+      makeEvidence({
+        '7_parse_failures': [
+          {
+            stage: 'quote_verify',
+            code: 'QUOTE_NOT_VERIFIABLE',
+            material_id: 'm1',
+            recoverable: true,
+          },
+        ],
+      }),
+    );
+    expect(r.needsHuman).toBe(false);
+    expect(r.reasons).not.toContain('parse_failure');
+  });
+
   it('有表面冲突 → unresolved_conflict', () => {
     const r = applyHumanityRules(
       makeRubric().criteria[0]!,

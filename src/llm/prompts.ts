@@ -9,7 +9,7 @@
  * 否则历史结果无法归因到具体是哪个版本的 prompt 产出的。
  */
 
-export const EVIDENCE_PROMPT_VERSION = 'b2-v1';
+export const EVIDENCE_PROMPT_VERSION = 'b2-v3';
 
 /** 上下文预算：超出则只送相关切片。 */
 export const MATERIAL_BUDGET_CHARS = 24_000;
@@ -51,7 +51,17 @@ export function buildEvidenceSystemPrompt(): string {
     'anchor 用「章节标题 或 代码块标识」描述，例如「2.1 原理说明 第2段」「代码块 list.1 行 12-30」。',
     '无法给出位置的内容一律不要输出。',
     '',
+    '【字段填写】',
+    '不确定或不适用的字段请**直接省略这个字段**，不要写成 null。',
+    '例如不知道页码时，location 里只写 anchor —— 不要写 "page": null。',
+    '系统会把 null 视为非法值并拒收整份输出。',
+    '',
     '【冲突处理】',
+    '只报**直接影响本评分点判定**的冲突 —— 判据是：冲突涉及的主题落在本评分点的',
+    '「所需证据清单」范围内（例如清单里要 wait，而正文声称已回收子进程却找不到 wait）。',
+    '**不要报其他评分点范围内的冲突**：抽取「原理说明」时看到了代码缺陷，也不要报 ——',
+    '那是代码实现评分点的事。冲突报错范围会牵连无关评分点一起转人工。',
+    '',
     '只描述「哪个事实与哪个事实不一致」，不解释原因、不推测动机。',
     'nature 字段只能取以下三个值之一：',
     'factual_mismatch | numeric_mismatch | internal_inconsistency',
@@ -130,7 +140,7 @@ export function buildEvidenceUserPrompt(input: EvidencePromptInput): string {
 // 等级匹配（阶段 C）
 // ────────────────────────────────────────────────────────────
 
-export const LEVEL_MATCH_PROMPT_VERSION = 'b3-v1';
+export const LEVEL_MATCH_PROMPT_VERSION = 'b3-v2';
 
 export interface LevelMatchPromptInput {
   criterionName: string;
@@ -150,6 +160,16 @@ export function buildLevelMatchSystemPrompt(): string {
     '3. 若证据中存在未解决的 surface_conflicts，把 needs_human 设为 true，并说明是哪一条冲突导致的。',
     '4. 你只输出**单个评分点**的档位，绝不输出总分。',
     '5. evidence_refs 只能引用输入里真实存在的 quote_id。',
+    '6. 不确定或不适用的字段请**直接省略**，不要写 null —— 系统会把 null 视为非法值。',
+    '',
+    '【human_reasons 只能取以下 6 个值，不要自创】',
+    'required_evidence_missing —— required 证据未满足',
+    'unresolved_conflict —— 存在未解决的表面冲突',
+    'parse_failure —— 材料解析失败，证据不完整',
+    'no_evidence —— 既没有引文支撑也没有报出缺失',
+    'criterion_is_judgment —— 该评分点属于定性判断',
+    'level_undefined —— 档位在该评分点的 levels 中没有定义',
+    '不需要转人工时，human_reasons 请留空数组。',
   ].join('\n');
 }
 

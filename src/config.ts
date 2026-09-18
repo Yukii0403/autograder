@@ -60,7 +60,16 @@ export type EnvConfig = z.infer<typeof RawEnvSchema>;
 /** Worker 运行时可见的全部绑定（含非配置类绑定）。 */
 export interface Bindings {
   DB: D1Database;
-  FILES: R2Bucket;
+  /**
+   * 原始文件与解析产物。
+   *
+   * ⚠️ 声明为可选：本地 `wrangler dev --local` 用的是模拟 R2，
+   * **本地 /ready 通过不代表线上存在同名 bucket**（这是实际踩过的坑）。
+   * 若账号未开通 R2（需要绑定支付方式），可从 wrangler.jsonc 注释掉该绑定后再部署，
+   * 代码不会因此崩溃 —— M1–M4 没有任何地方读写它，只有健康检查做探针。
+   * M2.5 接入文档解析后该绑定变为必需，届时调用处必须自行判空。
+   */
+  FILES?: R2Bucket;
   /**
    * Workers AI。
    *

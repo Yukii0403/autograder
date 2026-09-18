@@ -27,6 +27,7 @@ import type { EnvConfig } from '../config';
 import type { Logger } from '../logger';
 import { LlmError } from '../errors';
 import {
+  HumanReasonSchema,
   LevelMatchModelOutputSchema,
   type Criterion,
   type EvidenceExtraction,
@@ -34,7 +35,7 @@ import {
   type LevelMatch,
 } from '../schema';
 import { chat } from '../llm/client';
-import { parseModelJson } from '../llm/jsonGuard';
+import { parseModelJson, stripNulls } from '../llm/jsonGuard';
 import {
   LEVEL_MATCH_PROMPT_VERSION,
   buildLevelMatchSystemPrompt,
@@ -43,6 +44,7 @@ import {
 import {
   applyHumanityRules,
   capLevel,
+  hasMaterialLevelFailure,
   type HumanityRuleResult,
   type LevelCode,
 } from './scoringService';
@@ -67,7 +69,8 @@ export interface ReconcileArgs {
     rule_applied: string | null;
     alternatives: Array<{ level: LevelCode; blocked_by: string }>;
     needs_human: boolean;
-    human_reasons: HumanReason[];
+    /** 任意字符串：合法取值由这里过滤，不由 schema 拒收（见 schema 里的说明） */
+    human_reasons: string[];
   };
 }
 
@@ -106,8 +109,37 @@ export function reconcileLevelMatch(args: ReconcileArgs): ReconcileResult {
     adjustments.push(`丢弃 ${droppedMissing.length} 条不存在的缺失引用：${droppedMissing.join('、')}`);
   }
 
-  // ── ② 档位合法性 ──────────────────────────────────────
-  const reasons: HumanReason[] = [...rules.reasons, ...model.human_reasons];
+  // ── ② 转人工理由的过滤 ────────────────────────────────
+  // 模型给的理由标签先过滤 —— 闭集之外的取值只是"用词不同"，不是内容错误。
+  // 因为一个标签拒收整份判定，会丢掉本来可用的档位（实测踩过）。
+  const validReasons = new Set<string>(HumanReasonSchema.options);
+  const materialFailed = hasMaterialLevelFailure(evidence);
+
+  const acceptedReasons: HumanReason[] = [];
+  const rejectedReasons: string[] = [];
+
+  for (const reason of model.human_reasons) {
+    if (!validReasons.has(reason)) {
+      rejectedReasons.push(reason);
+      continue;
+    }
+    // parse_failure 不接受模型自报：材料到底有没有问题，只有写这个字段的程序知道。
+    // 模型能看到 7_parse_failures，于是会推断"解析失败"，但那个字段里混着
+    // 「引文回查丢弃」这类模型侧问题 —— 已被程序排除在判据之外。
+    if (reason === 'parse_failure' && !materialFailed) {
+      rejectedReasons.push(reason);
+      continue;
+    }
+    acceptedReasons.push(reason as HumanReason);
+  }
+
+  if (rejectedReasons.length > 0) {
+    adjustments.push(
+      `忽略了 ${rejectedReasons.length} 个程序不予采信的转人工理由：${rejectedReasons.join('、')}`,
+    );
+  }
+
+  const reasons: HumanReason[] = [...rules.reasons, ...acceptedReasons];
   let needsHuman = rules.needsHuman || model.needs_human;
 
   if (!definedLevels.has(model.matched_level)) {
@@ -228,7 +260,10 @@ export async function matchLevel(args: MatchLevelArgs): Promise<MatchLevelResult
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        maxTokens: 1500,
+        // 4000 而不是 1500：`deepseek-flash` 是带思考链的模型，会先把 token
+        // 花在内部推理上。实测 1500 时推理吃光配额、content 返回空、
+        // finish_reason 为 "length"。给足配额是根治，client 侧另有自适应放大兜底。
+        maxTokens: 4000,
         temperature: 0,
         jsonMode: true,
       },
@@ -236,7 +271,8 @@ export async function matchLevel(args: MatchLevelArgs): Promise<MatchLevelResult
     );
 
     const { value, step } = parseModelJson(result.content);
-    const parsed = LevelMatchModelOutputSchema.safeParse(value);
+    // 同 evidenceService：先做表示法归一化（null → 省略），再按契约校验
+    const parsed = LevelMatchModelOutputSchema.safeParse(stripNulls(value));
 
     if (!parsed.success) {
       lastIssues = parsed.error.issues

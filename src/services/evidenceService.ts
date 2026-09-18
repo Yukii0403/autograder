@@ -23,7 +23,7 @@ import {
   type Sufficiency,
 } from '../schema';
 import { chat } from '../llm/client';
-import { parseModelJson } from '../llm/jsonGuard';
+import { parseModelJson, stripNulls } from '../llm/jsonGuard';
 import {
   EVIDENCE_PROMPT_VERSION,
   MATERIAL_BUDGET_CHARS,
@@ -94,7 +94,10 @@ export async function extractEvidence(args: ExtractEvidenceArgs): Promise<Extrac
 
     const { value, step } = parseModelJson(result.content);
 
-    const parsed = EvidenceModelOutputSchema.safeParse(value);
+    // 归一化后再校验：模型把「不知道」写成 null，而契约里的可选字段只接受 undefined。
+    // 不做这一步，一份完全可用的观察层会被判非法并触发 3 次无用重试
+    // （实测白烧 43 秒）—— 那是表示法差异，不是内容错误。
+    const parsed = EvidenceModelOutputSchema.safeParse(stripNulls(value));
     if (!parsed.success) {
       const issues = parsed.error.issues
         .slice(0, 5)

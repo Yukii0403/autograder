@@ -6,6 +6,10 @@
  *          用于「现在能对外服务吗」。
  *
  * 两个端点都必须排除在限流之外，否则探针会被自己的限流挡住。
+ *
+ * 关于 R2：绑定不存在时报告 `skipped` 而非失败。理由是「未绑定」和「绑定了但坏了」
+ * 是两回事 —— 前者是当前阶段的已知状态（M1–M4 不读写 R2），后者才需要告警。
+ * 把两者混为一谈会让 /ready 永远 503，探测就失去意义了。
  */
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
@@ -17,6 +21,13 @@ export const healthRoutes = new Hono<AppEnv>();
 const PROBE_KEY = '__readiness_probe__';
 const PROBE_TIMEOUT_MS = 3_000;
 
+interface CheckResult {
+  ok: boolean;
+  detail?: string;
+  /** 该项未配置因而跳过 —— 不是故障 */
+  skipped?: boolean;
+}
+
 healthRoutes.get('/health', (c) =>
   c.json({
     status: 'ok',
@@ -27,7 +38,7 @@ healthRoutes.get('/health', (c) =>
 );
 
 healthRoutes.get('/ready', async (c) => {
-  const checks: Record<string, { ok: boolean; detail?: string }> = {};
+  const checks: Record<string, CheckResult> = {};
 
   try {
     getConfig(c.env);
@@ -37,13 +48,22 @@ healthRoutes.get('/ready', async (c) => {
     checks.config = { ok: false, detail: describeConfigIssues(err) };
   }
 
+  // 先取出局部变量，让 TS 的窄化在 async 闭包里保持有效
+  const files = c.env.FILES;
+
   const [db, r2] = await Promise.all([
     probe('d1', async () => {
       await c.env.DB.prepare('SELECT 1 AS ok').first();
     }),
-    probe('r2', async () => {
-      await c.env.FILES.head(PROBE_KEY);
-    }),
+    files
+      ? probe('r2', async () => {
+          await files.head(PROBE_KEY);
+        })
+      : Promise.resolve<CheckResult>({
+          ok: true,
+          skipped: true,
+          detail: '未绑定 R2（当前代码未使用该资源；文档解析上线前需配置）',
+        }),
   ]);
   checks.d1 = db;
   checks.r2 = r2;
@@ -59,7 +79,7 @@ healthRoutes.get('/ready', async (c) => {
 });
 
 /** 带超时的探针，避免依赖卡住导致 /ready 挂死。 */
-async function probe(name: string, fn: () => Promise<void>) {
+async function probe(name: string, fn: () => Promise<void>): Promise<CheckResult> {
   try {
     await Promise.race([
       fn(),

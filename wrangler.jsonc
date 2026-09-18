@@ -32,12 +32,24 @@
 			"database_id": "df73da3f-379d-44b8-8c8b-04331bb009a8"
 		}
 	],
-	"r2_buckets": [
-		{
-			"binding": "FILES",
-			"bucket_name": "autograder-files"
-		}
-	],
+	// R2 桶：存放原始报告文件与解析产物。
+	//
+	// ⚠️ 暂时注释掉。两个原因：
+	//   1. **本地 /ready 通过不代表线上存在同名桶** —— `wrangler dev --local` 用的是
+	//      模拟 R2，永远不会报「bucket not found」。这是实际踩过的坑：
+	//      本地三项全绿，部署时却报 `R2 bucket 'autograder-files' not found [code: 10085]`。
+	//   2. M1–M4 **没有任何代码读写 R2**，只有健康检查对它做探针。为一个未使用的
+	//      资源阻塞部署不划算 —— 而且 R2 开通需要绑定支付方式，可能卡住演示。
+	//
+	// **M2.5 接入文档解析前必须加回来**：取消注释 + 跑 `npm run bucket:create`。
+	// 代码侧已经做好容错（`Bindings.FILES` 是可选，`/ready` 对未绑定报告 skipped 而非失败），
+	// 所以加不加回来都不会让服务崩。
+	// "r2_buckets": [
+	// 	{
+	// 		"binding": "FILES",
+	// 		"bucket_name": "autograder-files"
+	// 	}
+	// ],
 	// ⚠️ Workers AI 绑定会让 wrangler dev 走 remote 模式（起 cloudflared 隧道），
 	// 本机代理会拦截隧道建立 → dev server 直接退出，报
 	// "cloudflared terminated by signal SIGTERM before the tunnel was ready"。
