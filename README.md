@@ -56,7 +56,7 @@ AutoGrader 的设计立场是：**执行问题交给机器，判断问题留给�
 
 | 层 | 选型 | 理由 |
 |---|---|---|
-| 部署 | Cloudflare Workers（Paid） | 公网可访问；`fetch()` 等待不计 CPU，长耗时 LLM 调用不撞限制 |
+| 部署 | Cloudflare Workers（Free 起步） | 公网可访问；`fetch()` 等待不计 CPU，长耗时 LLM 调用不撞限制。唯一吃 CPU 的本地 PDF 解析走平台服务外移 |
 | 批量任务 | Cloudflare Workflows | 单步 wall time 无上限、失败独立重试、可挂起等待教师确认 |
 | 模型 | DeepSeek（`deepseek-flash`） | 中文与代码混合输入表现好；JSON Output 模式；成本约 ¥0.1/份 |
 | 文档解析 | `unpdf`（PDF）、`mammoth.js`（DOCX），降级 `env.AI.toMarkdown()` | 服务端解析为权威，证据链不可被前端篡改 |
@@ -72,6 +72,7 @@ AutoGrader 的设计立场是：**执行问题交给机器，判断问题留给�
 autograder/
 ├─ docs/
 │  ├─ 技术方案.md              # 主方案（团队实现规格书）
+│  ├─ 环境搭建指南.md           # 手把手环境搭建与部署
 │  └─ 附录-数据契约与Prompt.md  # Schema 全文、Prompt 全文、限制对照、成本测算
 ├─ skills/
 │  ├─ autograder-evidence-extract/SKILL.md
@@ -142,7 +143,8 @@ npm run deploy
 
 | 文档 | 内容 |
 |---|---|
-| [技术方案](docs/技术方案.md) | 架构、模块划分、数据流、交互设计、评测方案、风险清单、生产加固 |
+| [技术方案](docs/技术方案.md) | 架构、模块划分、数据流、交互设计、评测方案、风险清单、生产加固、决策记录 |
+| [环境搭建指南](docs/环境搭建指南.md) | **手把手**：Cloudflare 注册、wrangler 登录、DeepSeek Key、R2/D1 创建、部署、撞限排查 |
 | [附录](docs/附录-数据契约与Prompt.md) | 四份 JSON Schema 全文、Prompt 全文、Workers 限制对照表、成本测算 |
 
 ---
