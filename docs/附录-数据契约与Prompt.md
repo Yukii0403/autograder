@@ -519,24 +519,50 @@ response_format: { "type": "json_object" }
 | 错误 | `5_surface_conflicts` 中描述数值不一致 | 任何评价性表述 |
 | 不一致 | `5_surface_conflicts` 中描述事实冲突 | 描述"写得不好" |
 
-### C.3 扫描实现建议
+### C.3 ⚠️ 扫描范围：只扫模型撰写的字段
+
+**这里有个容易写错的地方。** `2_found_quotes[].text` 是学生报告里的逐字摘录——学生完全可能在报告里写「本次实验顺利完成，效果很好」。如果扫这一段，就会把**学生的用词**误判成**模型的定性**。
+
+正确的分工：
+
+| 字段 | 谁写的 | 谁来管 |
+|---|---|---|
+| `2_found_quotes[].text` | **学生原文** | 由 `quoteVerify` 负责（不是逐字原文就丢弃）；**不做禁用词扫描** |
+| `1_searched_materials[].query` | 模型 | 禁用词扫描 |
+| `4_not_found[].expected` | 模型 | 禁用词扫描 |
+| `5_surface_conflicts[].claim` | 模型 | 禁用词扫描 |
+| `5_surface_conflicts[].observed` | 模型 | 禁用词扫描 |
+| `3_locations_index` | 结构信息 | 都不扫 |
+
+**调用顺序必须是：先 `verifyQuotes`，再 `scanJudgement`。** 校验通过后剩下的摘录确实是原文，不需要再扫；反过来若先扫后验，会把学生的正常用词当成模型的过错。
+
+实现见 `src/util/judgementScan.ts`（扫描范围）与 `src/util/quoteVerify.ts`（摘录校验）。
 
 ```ts
-const HARD_BANNED = /(好|差|优秀|良好|不合格|敷衍|认真|完整|缺失|创新|合理|充分|不足|抄袭|疑似|显然|应该|建议|值得|问题)/;
+// 只扫模型撰写的字段
+export function scanJudgement(evidence: EvidenceModelOutput): JudgementHit[] {
+  const hits: JudgementHit[] = [];
+  const scan = (text: string | undefined, field: string) => {
+    if (!text) return;
+    BANNED_RE.lastIndex = 0;          // ← 见下方注意事项
+    const m = BANNED_RE.exec(text);
+    if (m) hits.push({ term: m[0], field, excerpt: /* … */ '' });
+  };
 
-function assertNoJudgement(evidence: EvidenceExtraction) {
-  const haystack = [
-    ...evidence["2_found_quotes"].map(q => q.text),
-    ...evidence["4_not_found"].map(n => n.expected),
-    ...evidence["5_surface_conflicts"].flatMap(c => [c.claim, c.observed]),
-  ].join("\n");
+  evidence['1_searched_materials'].forEach((x, i) => scan(x.query, `1_searched_materials[${i}].query`));
+  evidence['4_not_found'].forEach((x, i) => scan(x.expected, `4_not_found[${i}].expected`));
+  evidence['5_surface_conflicts'].forEach((c, i) => {
+    scan(c.claim, `5_surface_conflicts[${i}].claim`);
+    scan(c.observed, `5_surface_conflicts[${i}].observed`);
+  });
 
-  const hit = haystack.match(HARD_BANNED);
-  if (hit) throw new JudgementLeakError(hit[0]);
+  return hits;
 }
 ```
 
-> 注：正则只是第一道筛选。「缺失/错误」这类词有合法语境，实际实现应结合字段位置判断，不要无差别拒收。
+**注意带 `g` 标志的正则**：它带 `lastIndex` 状态，复用前必须重置为 0，否则跨字段扫描会**漏检**——第二个字段开始就再也匹配不到了。这是个很隐蔽的坑。
+
+> 「缺失 / 错误」这类词有合法语境（例如"该项未提供"），词表已刻意排除它们，只保留无歧义的纯评价词。
 
 ---
 

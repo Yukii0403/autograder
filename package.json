@@ -1,0 +1,31 @@
+{
+  "name": "autograder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AutoGrader · 智能评阅教学平台",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cf:login": "wrangler login",
+    "cf:whoami": "wrangler whoami",
+    "db:create": "wrangler d1 create autograder",
+    "db:migrate:local": "wrangler d1 migrations apply autograder --local",
+    "db:migrate:remote": "wrangler d1 migrations apply autograder --remote",
+    "bucket:create": "wrangler r2 bucket create autograder-files",
+    "secrets:put": "wrangler secret put DEEPSEEK_API_KEY"
+  },
+  "dependencies": {
+    "hono": "^4.13.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1",
+    "wrangler": "^4.134.0"
+  }
+}

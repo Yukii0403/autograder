@@ -20,8 +20,7 @@ DEEPSEEK_MAX_RETRIES="3"
 
 # ── 安全与跨域 ────────────────────────────────────
 # 显式来源白名单，逗号分隔。生产环境禁止使用 "*"
-ALLOWED_ORIGINS="http://localhost:5173"
-SESSION_SECRET="REPLACE_ME_WITH_RANDOM_32_BYTES"
+ALLOWED_ORIGINS="http://localhost:5173,http://localhost:8787"
 
 # ── 限流 ─────────────────────────────────────────
 RATE_LIMIT_GRADE_PER_MIN="10"

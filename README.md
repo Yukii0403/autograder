@@ -71,9 +71,20 @@ AutoGrader 的设计立场是：**执行问题交给机器，判断问题留给�
 ```
 autograder/
 ├─ docs/
+│  ├─ 手动执行清单.md           # 逐条可复制的执行清单（先看这个）
 │  ├─ 技术方案.md              # 主方案（团队实现规格书）
-│  ├─ 环境搭建指南.md           # 手把手环境搭建与部署
+│  ├─ 环境搭建指南.md           # 环境搭建与部署的原理与踩坑记录
 │  └─ 附录-数据契约与Prompt.md  # Schema 全文、Prompt 全文、限制对照、成本测算
+├─ src/                        # Worker 源码
+│  ├─ config.ts                # 环境变量集中校验（缺失即快速失败）
+│  ├─ errors.ts                # 类型化错误体系
+│  ├─ logger.ts                # 结构化 JSON 日志（自动脱敏）
+│  ├─ index.ts                 # 入口：装配中间件与路由
+│  ├─ middleware/              # requestId / 配置校验 / 错误处理 / 安全头 / CORS / 限流
+│  └─ routes/health.ts         # /health 与 /ready
+├─ test/                       # 单元测试（配置校验、错误体系）
+├─ wrangler.jsonc              # Worker 配置与绑定
+└─ tsconfig.json
 ├─ skills/
 │  ├─ autograder-evidence-extract/SKILL.md
 │  └─ autograder-level-match/SKILL.md
@@ -143,23 +154,29 @@ npm run deploy
 
 | 文档 | 内容 |
 |---|---|
+| **[开发交接](docs/开发交接.md)** | **共同开发者从这里开始**：进度、待解决问题、详细设计、已知的坑、协作约定 |
+| [手动执行清单](docs/手动执行清单.md) | 逐条可复制的命令、预期输出、失败排查 |
 | [技术方案](docs/技术方案.md) | 架构、模块划分、数据流、交互设计、评测方案、风险清单、生产加固、决策记录 |
-| [环境搭建指南](docs/环境搭建指南.md) | **手把手**：Cloudflare 注册、wrangler 登录、DeepSeek Key、R2/D1 创建、部署、撞限排查 |
+| [环境搭建指南](docs/环境搭建指南.md) | Cloudflare 注册、wrangler 登录、DeepSeek Key、R2/D1 创建、部署、撞限排查 |
 | [附录](docs/附录-数据契约与Prompt.md) | 四份 JSON Schema 全文、Prompt 全文、Workers 限制对照表、成本测算 |
 
 ---
 
 ## 当前状态
 
-| 项 | 状态 |
-|---|---|
-| 技术方案文档 | ✅ 完成 |
-| 两个 Skill 定义 | ✅ 完成 |
-| 原型代码 | ⏳ 待开发 |
-| 真实数据接入 | ⏳ 待教师提供 rubric 与已批改报告 |
-| 离线评测 | ⏳ 待原型就绪 |
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| M1 骨架 | 配置校验 / 错误体系 / 日志 / 健康检查 / 安全头 / CORS / 限流 / 游客模式 | ✅ 已验证 |
+| M2 数据层 | D1 迁移（8 张表）+ 评分细则 CRUD | ✅ 已验证 |
+| M3 证据抽取 | DeepSeek 客户端 / JSON 降级链 / 章节索引 / 引文回查 / 禁用词扫描 | ⚠️ 代码完成，端到端待验证 |
+| M4 等级匹配与算分 | 等级匹配（含程序裁量权）/ 确定性算分 / `POST /api/grade` / 逐分解释 | ⚠️ 代码完成，待验证 |
+| M2.5 文档解析 | PDF / DOCX → markdown | ⬜ 未开始 |
+| M5 前端 | 工作台 / 复核页 / 评测页 | ⬜ 未开始 |
+| 部署 | 公网 `*.workers.dev` 地址 | ⬜ 未开始 |
 
-**本仓库当前阶段为设计交付**，代码实现按 `docs/技术方案.md` 第六章的执行顺序推进。
+**质量基线**：`npm run typecheck` 无输出；`npm test` 5 个文件 93 个用例。
+
+**下一步**：见 [开发交接 §2 待解决问题](docs/开发交接.md#2-待解决问题)。
 
 ---
 

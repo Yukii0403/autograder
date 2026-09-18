@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# 本地 npm 配置（国内镜像，不入库以免影响他人在不同网络环境下的安装）
+.npmrc
+
 # 构建产物
 dist/
 .output/
@@ -34,6 +37,11 @@ tmp/
 .cache/
 *.log
 npm-debug.log*
+
+# 本地调试产物 —— 含学生报告原文摘录与模型输出，绝不提交
+evidence.json
+grade.json
+*.local.json
 
 # 编辑器 / 系统
 .vscode/*

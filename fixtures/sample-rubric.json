@@ -1,0 +1,80 @@
+{
+  "title": "操作系统实验三 · 进程与信号",
+  "course": "操作系统",
+  "total_points": 100,
+  "criteria": [
+    {
+      "criterion_id": "c1",
+      "name": "实验原理说明",
+      "weight": 15,
+      "type": "execution",
+      "evidence_requirements": [
+        { "req_id": "r1", "kind": "section", "target": "原理", "min_chars": 200, "required": true },
+        { "req_id": "r2", "kind": "code_symbol", "target": "fork", "required": true }
+      ],
+      "levels": [
+        { "level": "L4", "score_ratio": 1.0, "descriptor": "覆盖进程创建、信号、同步三个要点，且与实际代码对应" },
+        { "level": "L3", "score_ratio": 0.8, "descriptor": "覆盖主要要点，个别次要要点未展开" },
+        { "level": "L2", "score_ratio": 0.5, "descriptor": "仅复述教材定义，未与本次实现建立对应" },
+        { "level": "L1", "score_ratio": 0.2, "descriptor": "几乎未涉及原理" }
+      ],
+      "cap_level_when_required_missing": "L2"
+    },
+    {
+      "criterion_id": "c2",
+      "name": "代码实现与功能正确性",
+      "weight": 35,
+      "type": "execution",
+      "evidence_requirements": [
+        { "req_id": "r3", "kind": "code_symbol", "target": "fork|wait|waitpid", "required": true },
+        { "req_id": "r4", "kind": "code_symbol", "target": "signal|sigaction|kill", "required": true }
+      ],
+      "levels": [
+        { "level": "L4", "score_ratio": 1.0, "descriptor": "全部功能实现正确，异常路径有处理" },
+        { "level": "L3", "score_ratio": 0.8, "descriptor": "主流程正确，个别边界情况未覆盖" },
+        { "level": "L2", "score_ratio": 0.5, "descriptor": "核心功能可用，存在明确缺陷" },
+        { "level": "L1", "score_ratio": 0.2, "descriptor": "无法完成基本功能" }
+      ],
+      "cap_level_when_required_missing": "L2"
+    },
+    {
+      "criterion_id": "c3",
+      "name": "实验结果与数据",
+      "weight": 30,
+      "type": "execution",
+      "evidence_requirements": [
+        { "req_id": "r5", "kind": "figure", "target": "图", "required": true },
+        { "req_id": "r6", "kind": "section", "target": "结果", "min_chars": 150, "required": true }
+      ],
+      "levels": [
+        { "level": "L4", "score_ratio": 1.0, "descriptor": "给出完整运行输出，与代码行为一致，含对照" },
+        { "level": "L3", "score_ratio": 0.8, "descriptor": "结果完整，缺少对照或分析较浅" },
+        { "level": "L2", "score_ratio": 0.5, "descriptor": "结果不完整，或与代码行为对不上" },
+        { "level": "L1", "score_ratio": 0.2, "descriptor": "未给出可核验的运行结果" }
+      ],
+      "cap_level_when_required_missing": "L2"
+    },
+    {
+      "criterion_id": "c4",
+      "name": "问题分析与改进",
+      "weight": 20,
+      "type": "execution",
+      "evidence_requirements": [
+        { "req_id": "r7", "kind": "section", "target": "问题", "min_chars": 100, "required": false }
+      ],
+      "levels": [
+        { "level": "L4", "score_ratio": 1.0, "descriptor": "指出具体问题并给出可验证的改进方案" },
+        { "level": "L3", "score_ratio": 0.8, "descriptor": "指出问题，改进方案较为笼统" },
+        { "level": "L2", "score_ratio": 0.5, "descriptor": "仅泛泛而谈，未结合实际实现" },
+        { "level": "L1", "score_ratio": 0.2, "descriptor": "未涉及" }
+      ],
+      "cap_level_when_required_missing": "L2"
+    }
+  ],
+  "scoring": {
+    "compose": "weighted_sum",
+    "round": "half_up_1",
+    "pass_line": 60,
+    "pass_line_requires_human": true
+  }
+}

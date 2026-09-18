@@ -83,8 +83,11 @@ disable: false
 | `required_evidence_missing` | required 证据未满足且封顶规则不足以覆盖 |
 | `unresolved_conflict` | 存在未解决的 `surface_conflicts` |
 | `parse_failure` | 材料解析失败，证据不完整 |
-| `no_evidence` | `evidence_refs` 为空 |
+| `no_evidence` | `evidence_refs` 与 `missing_refs` 都为空，判定无依据 |
 | `criterion_is_judgment` | 该评分点类型为 `judgment`，不适用自动判定 |
+| `level_undefined` | 给出的档位在该评分点的 `levels` 里没有定义，无法换算系数 |
+
+**`needs_human` 取并集，不取交集。** 程序规则判定需要人工的，模型说不需要也无效；模型判定需要人工的，程序规则不反对也保留。任一方提出即成立 —— 让错误漏出去的成本远高于多送一次人工。
 
 ## 执行步骤
 
@@ -108,8 +111,13 @@ if evidence["6_sufficiency"].req_results 中存在 required 未满足:
 ### 3. 后置校验（程序侧）
 
 - `evidence_refs` 中的每个 `quote_id` 必须真实存在于证据 JSON 中，否则丢弃该引用
-- `matched_level` 必须落在 `levels` 声明过的档位内
+- `missing_refs` 中的每个 `req_id` 必须真实存在于 `4_not_found` 中，否则丢弃
+- `matched_level` 必须落在 `levels` 声明过的档位内，否则 `needs_human = true`（`level_undefined`）
 - 若应用了封顶规则，最终档位不得高于封顶档 —— **程序强制截断，不信任模型**
+- 若 `evidence_refs` 与 `missing_refs` 都为空，说明这个档位没有任何可核对的基础 → `needs_human = true`
+- 程序每一次干预都必须留痕（档位被压低、引用被丢弃），教师复核时要能看到
+
+**原则一句话**：模型提建议，程序下判决。封顶、引用核对、依据充分性这三件事一律由程序裁定，模型声称"不需要"也无效。
 
 ## 禁止事项
 
@@ -134,8 +142,10 @@ final_total    = round_half_up(computed_total, 1) + Σ override_delta
 ## 自检清单
 
 - [ ] `evidence_refs` 中的每个 ID 都真实存在于输入证据中？
+- [ ] `missing_refs` 中的每个 ID 都真实存在于 `4_not_found` 中？
 - [ ] `matched_level` 在 `levels` 声明范围内？
 - [ ] 若命中封顶规则，档位确实不高于封顶值？
+- [ ] `evidence_refs` 与 `missing_refs` 不同时为空（否则应置 `needs_human`）？
 - [ ] 没有输出任何形式的分数或总分？
 - [ ] 证据不足时确实置了 `needs_human`，而不是"猜一个档位"？
 - [ ] `alternatives` 里写清了被阻断的更高档位及原因？

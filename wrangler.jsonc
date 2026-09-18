@@ -1,0 +1,64 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "autograder",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	// 前端静态资源。
+	//
+	// 为什么现在就用静态资源而不是内联 HTML：安全头里的 CSP 是 `script-src 'self'`，
+	// 内联 <script> 会被浏览器直接拦掉。要么放宽 CSP（不可取），要么脚本走同源文件 ——
+	// 后者顺带把 M5 前端的落点也定下来了（Vite 构建产物将来输出到同一目录即可）。
+	//
+	// 不设 not_found_handling：本项目只有一个页面，没有前端路由。
+	// 未命中的路径交给 Worker，由 Hono 的 notFound 返回规范化的 JSON 404。
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS"
+	},
+	"d1_databases": [
+		{
+			// 只需要这一条。注意 wrangler d1 create 会自动追加一条带 "remote": true 的绑定，
+			// 那条会让 wrangler dev 走 remote 模式（要起 cloudflared 隧道），本地开发用不上，
+			// 且会让 env.DB 指向一个不存在的库。发现重复就删掉多余的。
+			// binding 必须是 "DB" —— 代码里读的是 env.DB。
+			"binding": "DB",
+			"database_name": "autograder",
+			"database_id": "df73da3f-379d-44b8-8c8b-04331bb009a8"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "FILES",
+			"bucket_name": "autograder-files"
+		}
+	],
+	// ⚠️ Workers AI 绑定会让 wrangler dev 走 remote 模式（起 cloudflared 隧道），
+	// 本机代理会拦截隧道建立 → dev server 直接退出，报
+	// "cloudflared terminated by signal SIGTERM before the tunnel was ready"。
+	// M2.5 做文档解析（env.AI.toMarkdown）时才需要它，届时在能连通 Cloudflare 的
+	// 网络环境下再取消注释。
+	// "ai": {
+	//   "binding": "AI"
+	// },
+	// 普通配置放这里；密钥（DEEPSEEK_API_KEY）用 `wrangler secret put` 单独写入，绝不写在此处
+	"vars": {
+		"DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+		"DEEPSEEK_MODEL": "deepseek-flash",
+		"DEEPSEEK_TIMEOUT_MS": "120000",
+		"DEEPSEEK_MAX_RETRIES": "3",
+		"ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:8787",
+		"RATE_LIMIT_GRADE_PER_MIN": "10",
+		"RATE_LIMIT_UPLOAD_PER_MIN": "20",
+		"MAX_UPLOAD_BYTES": "20971520",
+		"QUOTE_VERIFY_MIN_SIMILARITY": "0.9",
+		"EVIDENCE_EXTRACT_CONCURRENCY": "5",
+		"LOG_LEVEL": "info",
+		"DEMO_FALLBACK_ENABLED": "false"
+	}
+}

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AutoGrader · 实验报告智能评阅</title>
+    <meta
+      name="description"
+      content="把教师脑中的评分标准显性化，把可机械化的部分从人身上挪走。AI 只提供带证据的建议，最终判定由教师做出。"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap">
+        <h1>AutoGrader</h1>
+        <p class="tagline">
+          把教师脑中的评分标准显性化，把可机械化的部分从人身上挪走。
+        </p>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <!-- ── 输入区 ─────────────────────────────────────── -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>① 选择评分细则，粘贴实验报告</h2>
+          <a class="ghost-link" href="/health" target="_blank" rel="noopener">服务状态</a>
+        </div>
+
+        <div class="field">
+          <label for="rubric">评分细则</label>
+          <select id="rubric" aria-describedby="rubric-hint">
+            <option value="">加载中…</option>
+          </select>
+          <p id="rubric-hint" class="hint">
+            细则决定「检什么证据、分几档」。没有细则时先到
+            <code>POST /api/rubrics</code> 建一份，或用 <code>fixtures/sample-rubric.json</code>。
+          </p>
+        </div>
+
+        <div class="field">
+          <div class="field-head">
+            <label for="report">实验报告正文</label>
+            <button type="button" class="ghost" id="load-sample">载入示例报告</button>
+          </div>
+          <textarea
+            id="report"
+            rows="12"
+            spellcheck="false"
+            placeholder="粘贴报告正文（markdown 或纯文本）。本期只接受文本，PDF / Word 解析在下一里程碑。"
+          ></textarea>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="run" class="primary">开始评阅</button>
+          <span id="status" class="status" role="status" aria-live="polite"></span>
+        </div>
+
+        <p class="disclaimer">
+          <strong>AI 仅提供建议，最终判定由教师做出。</strong>
+          抄袭雷同的定性、主观分、及格线附近的判定一律不由系统给出。
+        </p>
+      </section>
+
+      <!-- ── 结果区 ─────────────────────────────────────── -->
+      <section id="result" class="panel result-panel" hidden>
+        <div class="panel-head">
+          <h2>② 评阅结果</h2>
+          <span class="meta" id="result-meta"></span>
+        </div>
+
+        <div class="score-row">
+          <div class="score-card">
+            <span class="score-label">程序计算总分</span>
+            <span class="score-value" id="final-total">—</span>
+            <span class="score-sub" id="score-sub"></span>
+          </div>
+          <div class="score-card">
+            <span class="score-label">自动定级 / 待人工</span>
+            <span class="score-value small" id="auto-pending">—</span>
+            <span class="score-sub">待人工的评分点不计入总分</span>
+          </div>
+          <div class="score-card">
+            <span class="score-label">引文可定位率</span>
+            <span class="score-value small" id="quote-rate">—</span>
+            <span class="score-sub">未能在原文中命中的摘录已被丢弃</span>
+          </div>
+        </div>
+
+        <p class="notice" id="notice"></p>
+
+        <h3>每一分是怎么来的</h3>
+        <div class="table-wrap">
+          <table id="explain">
+            <thead>
+              <tr>
+                <th scope="col">评分点</th>
+                <th scope="col">权重</th>
+                <th scope="col">档位</th>
+                <th scope="col">系数</th>
+                <th scope="col">得分</th>
+                <th scope="col">来源</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <h3>需要人工判断的评分点</h3>
+        <ul id="pending-list" class="pending-list"></ul>
+      </section>
+
+      <!-- ── 技术说明 ───────────────────────────────────── -->
+      <section class="panel muted">
+        <h2>这个结果是怎么算出来的</h2>
+        <ol class="flow">
+          <li><strong>观察层</strong> — 逐评分点检索材料，只记录「原文里有什么、在哪里、缺什么」，<em>不含任何评价</em>。</li>
+          <li><strong>引文回查</strong> — 每条摘录必须能在原文中被真实找到，对不上的直接丢弃，位置以程序计算为准。</li>
+          <li><strong>等级匹配</strong> — 模型给出档位建议；封顶、引用核对、依据充分性由程序裁定，<em>模型说"不需要"也无效</em>。</li>
+          <li><strong>确定性算分</strong> — <code>总分 = 100 × Σ(权重 × 档位系数) / Σ权重</code>，纯函数，模型不参与出分。</li>
+        </ol>
+        <p class="hint">
+          判据一句话：<strong>「没找到」是事实，「不合格」是判断。</strong>
+          前者交给机器，后者留给人。
+        </p>
+      </section>
+    </main>
+
+    <footer class="wrap foot">
+      <span>AutoGrader · 深大计软 &amp; 腾讯云 粤港澳大湾区 AI Coding 创新大赛参赛作品</span>
+    </footer>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
