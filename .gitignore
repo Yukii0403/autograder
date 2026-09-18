@@ -1,0 +1,43 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建产物
+dist/
+.output/
+.next/
+build/
+
+# Cloudflare 本地状态
+.wrangler/
+worker-configuration.d.ts
+
+# 密钥与环境变量 —— 绝不提交
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# 真实学生数据 —— 涉及个人信息，绝不提交
+data/real/
+uploads/
+fixtures/real/
+*.student.pdf
+*.student.docx
+
+# 评测与临时产物
+coverage/
+tmp/
+.cache/
+*.log
+npm-debug.log*
+
+# 编辑器 / 系统
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

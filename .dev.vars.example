@@ -1,0 +1,45 @@
+# AutoGrader 环境变量模板
+#
+# 用法：
+#   cp .dev.vars.example .dev.vars      # 本地开发
+#   在 Cloudflare 上改用：npx wrangler secret put <NAME>
+#
+# 规则：
+#   - 本文件只放占位值，真实密钥一律不提交
+#   - 所有变量在启动时集中校验，缺失或非法即快速失败（见技术方案第 12 章）
+#   - DEEPSEEK_API_KEY 标记为 secret，其余为普通 vars
+
+# ── 模型接入（secret）──────────────────────────────
+DEEPSEEK_API_KEY="sk-REPLACE_ME"
+
+# ── 模型接入（vars）────────────────────────────────
+DEEPSEEK_BASE_URL="https://api.deepseek.com"
+DEEPSEEK_MODEL="deepseek-flash"
+DEEPSEEK_TIMEOUT_MS="120000"
+DEEPSEEK_MAX_RETRIES="3"
+
+# ── 安全与跨域 ────────────────────────────────────
+# 显式来源白名单，逗号分隔。生产环境禁止使用 "*"
+ALLOWED_ORIGINS="http://localhost:5173"
+SESSION_SECRET="REPLACE_ME_WITH_RANDOM_32_BYTES"
+
+# ── 限流 ─────────────────────────────────────────
+RATE_LIMIT_GRADE_PER_MIN="10"
+RATE_LIMIT_UPLOAD_PER_MIN="20"
+
+# ── 上传限制 ─────────────────────────────────────
+MAX_UPLOAD_BYTES="20971520"
+
+# ── 证据链硬门槛 ──────────────────────────────────
+# 引文回查的最低相似度；低于此值的摘录一律丢弃
+QUOTE_VERIFY_MIN_SIMILARITY="0.9"
+# 单份报告的并发抽取组数，建议 <= 6
+EVIDENCE_EXTRACT_CONCURRENCY="5"
+
+# ── 日志 ─────────────────────────────────────────
+# debug | info | warn | error
+LOG_LEVEL="info"
+
+# ── 演示降级 ──────────────────────────────────────
+# true 时允许在模型不可用时回落到预生成快照（UI 必须显式标注）
+DEMO_FALLBACK_ENABLED="false"
